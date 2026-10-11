@@ -719,20 +719,28 @@ function extractAndSendCode(promptText, requestId, isArena) {
   let rawAssistantText = getLatestAssistantText(latestAssistantEl);
   let latestCode = '';
 
-  // Extract surgical diff if present
+  // Extract surgical diffs (all blocks present across code blocks or full response text)
   if (latestAssistantEl) {
     const codeBlocks = latestAssistantEl.querySelectorAll('pre code, code');
-    for (let i = codeBlocks.length - 1; i >= 0; i--) {
+    const matchedBlocks = [];
+    for (let i = 0; i < codeBlocks.length; i++) {
       const code = (codeBlocks[i].innerText || codeBlocks[i].textContent || '');
       if (
         code.includes('<<<<<<< SEARCH') &&
         code.includes('>>>>>>> REPLACE') &&
         !code.includes('exact lines to find in original file')
       ) {
-        latestCode = code;
-        break;
+        matchedBlocks.push(code);
       }
     }
+    if (matchedBlocks.length > 0) {
+      latestCode = matchedBlocks.join('\n\n');
+    }
+  }
+
+  // If no individual code block had both markers, but the overall assistant text has diff blocks, use full text
+  if (!latestCode && rawAssistantText.includes('<<<<<<< SEARCH') && rawAssistantText.includes('>>>>>>> REPLACE')) {
+    latestCode = rawAssistantText;
   }
 
   let cleanedText = rawAssistantText || latestCode;

@@ -11,11 +11,12 @@ import { ProviderName } from '../server/protocol';
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'assistant' | 'system';
-  provider?: ProviderName;
+  provider?: ProviderName | 'Arena';
   text: string;
   code?: string;
   hasDiff?: boolean;
   timestamp: number;
+  arenaResults?: ArenaResult[];
 }
 
 export interface ChatSession {
@@ -33,6 +34,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   // Session-wise chat history state
   private sessions: ChatSession[] = [];
   private activeSessionId: string = '';
+
+  // In-flight & UI state persistence
+  private draftPrompt: string = '';
+  private isWaitingForResponse: boolean = false;
+  private currentWaitingTarget: string = 'AI';
+  private currentArenaResults: ArenaResult[] | null = null;
+  private isArenaInProgress: boolean = false;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -54,6 +62,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     // Listen for arena results
     this.arena.onResultsUpdate((results: ArenaResult[], isComplete: boolean) => {
+      this.currentArenaResults = results;
+      this.isArenaInProgress = !isComplete;
+      if (isComplete) {
+        this.isWaitingForResponse = false;
+      }
+
       this.view?.webview.postMessage({
         type: 'ARENA_RESULTS',
         results,
@@ -70,10 +84,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             sender: 'assistant',
             provider: 'Arena' as any,
             text: combinedArenaText,
+            arenaResults: results,
             timestamp: Date.now()
           });
           session.updatedAt = Date.now();
           this.persistSessions();
+          this.syncSessions();
         }
       }
     });
@@ -129,25 +145,53 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         }
 
         case 'PREVIEW_ARENA_DIFF': {
-          const editor = vscode.window.activeTextEditor;
-          if (editor && data.code) {
-            await this.diffManager.previewDiff(editor.document, data.code);
+          let targetDoc: vscode.TextDocument | null = null;
+          const targetUri = this.diffManager.getTargetFileUri();
+          if (targetUri) {
+            try {
+              targetDoc = await vscode.workspace.openTextDocument(targetUri);
+            } catch (e) {
+              console.warn('[AiDot] Could not open target file URI:', e);
+            }
+          }
+          if (!targetDoc) {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && editor.document.uri.scheme === 'file') {
+              targetDoc = editor.document;
+            }
+          }
+          if (targetDoc && data.code) {
+            await this.diffManager.previewDiff(targetDoc, data.code);
             this.view?.webview.postMessage({ type: 'DIFF_READY' });
           }
           break;
         }
 
+        case 'DRAFT_UPDATE': {
+          this.draftPrompt = data.draft || '';
+          break;
+        }
+
         case 'NEW_SESSION': {
+          this.draftPrompt = '';
+          this.isWaitingForResponse = false;
+          this.currentArenaResults = null;
+          this.isArenaInProgress = false;
           this.createNewSession();
           this.syncSessions();
+          this.restoreWebviewState();
           break;
         }
 
         case 'SWITCH_SESSION': {
           if (data.sessionId) {
             this.activeSessionId = data.sessionId;
+            this.currentArenaResults = null;
+            this.isArenaInProgress = false;
+            this.isWaitingForResponse = false;
             this.persistSessions();
             this.syncSessions();
+            this.restoreWebviewState();
           }
           break;
         }
@@ -168,6 +212,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           this.syncStatus();
           this.syncSessions();
           this.syncActiveFileContext();
+          this.restoreWebviewState();
           break;
         }
 
@@ -181,6 +226,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this.syncStatus();
     this.syncSessions();
     this.syncActiveFileContext();
+    this.restoreWebviewState();
+  }
+
+  public restoreWebviewState() {
+    if (!this.view) return;
+    this.view.webview.postMessage({
+      type: 'RESTORE_STATE',
+      draftPrompt: this.draftPrompt,
+      isWaiting: this.isWaitingForResponse,
+      waitingTarget: this.currentWaitingTarget,
+      arenaResults: this.currentArenaResults,
+      isArenaComplete: !this.isArenaInProgress,
+      isArenaActive: this.isArenaInProgress
+    });
   }
 
   public syncStatus() {
@@ -243,6 +302,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   public handleIncomingAIResponse(provider: ProviderName, fullText: string, code: string, hasDiff: boolean) {
+    this.isWaitingForResponse = false;
     const session = this.getActiveSession();
     if (session) {
       session.messages.push({
@@ -284,9 +344,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     extraContext?: string
   ) {
     const editor = vscode.window.activeTextEditor;
+    let targetDocUri: vscode.Uri | null = (editor && editor.document.uri.scheme === 'file') ? editor.document.uri : null;
     const doc = editor ? editor.document : null;
     let fileContent = doc ? doc.getText() : '';
     let fileName = doc ? doc.fileName.split(/[\\/]/).pop() || 'file' : '';
+
+    // Clear draft on submission
+    this.draftPrompt = '';
+    this.isWaitingForResponse = true;
+    const isPinned = !['auto', 'arena'].includes(mode);
+    this.currentWaitingTarget = isPinned ? (preferredProvider || mode) : (mode === 'arena' ? 'All AI tabs' : 'AI');
 
     // Automatically resolve any @file mentions in promptText
     const mentionRegex = /@([^\s]+)/g;
@@ -298,8 +365,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const relPath = match[1];
       const targetPath = path.isAbsolute(relPath) ? relPath : path.resolve(rootPath, relPath);
       if (fs.existsSync(targetPath)) {
+        targetDocUri = vscode.Uri.file(targetPath);
         try {
-          const content = fs.readFileSync(targetPath, 'utf-8');
+          // If the file is open in an editor buffer, use its latest live text
+          const openDoc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === targetPath);
+          const content = openDoc ? openDoc.getText() : fs.readFileSync(targetPath, 'utf-8');
           referencedFilesContext += `\nReferenced File (${relPath}):\n\`\`\`\n${content}\n\`\`\`\n`;
           // If no active file open, use this mentioned file as active
           if (!fileContent) {
@@ -310,6 +380,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           console.warn('Could not read referenced file:', relPath);
         }
       }
+    }
+
+    if (targetDocUri) {
+      this.diffManager.setTargetFileUri(targetDocUri);
     }
 
     // Append user message to active session history
@@ -332,8 +406,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const fullPrompt = this.agentLoop.buildSystemPrompt(promptText, fileContent, fileName, referencedFilesContext);
 
     if (mode === 'arena') {
+      this.isArenaInProgress = true;
+      this.currentArenaResults = [];
       const connected = this.router.getConnectedProviders();
       if (connected.length === 0) {
+        this.isWaitingForResponse = false;
+        this.isArenaInProgress = false;
         vscode.window.showErrorMessage('No browser tabs connected! Open ChatGPT, Claude, Gemini, or DeepSeek.');
         return;
       }
@@ -343,6 +421,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         step: `⚔️ Arena Mode: Dispatched to ${connected.join(', ')}...`
       });
     } else {
+      this.isArenaInProgress = false;
+      this.currentArenaResults = null;
       const routeResult = this.router.routePrompt(
         fullPrompt,
         promptText,
@@ -350,6 +430,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       );
 
       if (!routeResult) {
+        this.isWaitingForResponse = false;
         vscode.window.showErrorMessage('No available AI tabs! Ensure Brave/Chrome companion is active.');
       } else {
         this.view?.webview.postMessage({
@@ -913,13 +994,17 @@ Please analyze this error and provide an explanation or fix.`;
 
   <script>
     const vscode = acquireVsCodeApi();
+    const initialState = vscode.getState() || {};
 
     const ALL_PROVIDERS = ['Claude', 'ChatGPT', 'Gemini', 'DeepSeek'];
     let workspaceFiles = [];
     let mentionStartIndex = -1;
     let selectedMentionIndex = 0;
-    let isWaitingForResponse = false;
-    let currentWaitingTarget = 'AI';
+    let isWaitingForResponse = !!initialState.isWaitingForResponse;
+    let currentWaitingTarget = initialState.currentWaitingTarget || 'AI';
+    window.arenaResultsCache = initialState.arenaResults || null;
+    window.arenaIsComplete = !!initialState.isArenaComplete;
+    window.lastRenderedMessages = [];
 
     // DOM Elements
     const chatContainer = document.getElementById('chatContainer');
@@ -937,12 +1022,50 @@ Please analyze this error and provide an explanation or fix.`;
     const sessionsDropdown = document.getElementById('sessionsDropdown');
     const mentionDropdown = document.getElementById('mentionDropdown');
 
+    // Restore saved input and mode
+    if (initialState.draftPrompt) {
+      promptInput.value = initialState.draftPrompt;
+    }
+    if (initialState.mode) {
+      modeSelect.value = initialState.mode;
+    }
+    if (isWaitingForResponse) {
+      showLoadingBubble(currentWaitingTarget);
+    }
+
+    function persistState(overrides = {}) {
+      const cur = vscode.getState() || {};
+      const updated = {
+        ...cur,
+        draftPrompt: promptInput ? promptInput.value : '',
+        mode: modeSelect ? modeSelect.value : 'auto',
+        isWaitingForResponse,
+        currentWaitingTarget,
+        arenaResults: window.arenaResultsCache,
+        isArenaComplete: window.arenaIsComplete,
+        ...overrides
+      };
+      vscode.setState(updated);
+    }
+
+    modeSelect.addEventListener('change', () => {
+      persistState();
+    });
+
     // Toggle Sessions Drawer
     sessionsToggle.addEventListener('click', () => {
       sessionsDropdown.style.display = sessionsDropdown.style.display === 'flex' ? 'none' : 'flex';
     });
 
     newChatBtn.addEventListener('click', () => {
+      promptInput.value = '';
+      window.arenaResultsCache = null;
+      window.arenaIsComplete = false;
+      isWaitingForResponse = false;
+      removeLoadingBubble();
+      const existing = document.getElementById('arenaChatBlock');
+      if (existing) existing.remove();
+      persistState({ draftPrompt: '', arenaResults: null, isArenaComplete: false, isWaitingForResponse: false });
       vscode.postMessage({ type: 'NEW_SESSION' });
     });
 
@@ -983,11 +1106,14 @@ Please analyze this error and provide an explanation or fix.`;
     });
 
     promptInput.addEventListener('input', (e) => {
+      persistState();
+      vscode.postMessage({ type: 'DRAFT_UPDATE', draft: promptInput.value });
+
       const text = promptInput.value;
       const cursorPos = promptInput.selectionStart;
       const atIndex = text.lastIndexOf('@', cursorPos - 1);
 
-      if (atIndex !== -1 && (atIndex === 0 || /\\s/.test(text[atIndex - 1]))) {
+      if (atIndex !== -1 && (atIndex === 0 || /\s/.test(text[atIndex - 1]))) {
         const query = text.substring(atIndex + 1, cursorPos);
         if (!query.includes(' ')) {
           mentionStartIndex = atIndex;
@@ -1019,6 +1145,12 @@ Please analyze this error and provide an explanation or fix.`;
       // Set state and show loader
       isWaitingForResponse = true;
       currentWaitingTarget = isPinned ? mode : (mode === 'arena' ? 'All AI tabs' : 'AI');
+      if (mode === 'arena') {
+        window.arenaResultsCache = [];
+        window.arenaIsComplete = false;
+        const existing = document.getElementById('arenaChatBlock');
+        if (existing) existing.remove();
+      }
       showLoadingBubble(currentWaitingTarget);
 
       vscode.postMessage({
@@ -1029,6 +1161,8 @@ Please analyze this error and provide an explanation or fix.`;
       });
 
       promptInput.value = '';
+      persistState({ draftPrompt: '' });
+      vscode.postMessage({ type: 'DRAFT_UPDATE', draft: '' });
       closeMentions();
     }
 
@@ -1068,6 +1202,26 @@ Please analyze this error and provide an explanation or fix.`;
     window.addEventListener('message', (event) => {
       const msg = event.data;
 
+      if (msg.type === 'RESTORE_STATE') {
+        if (!promptInput.value && msg.draftPrompt) {
+          promptInput.value = msg.draftPrompt;
+        }
+        if (msg.isWaiting) {
+          isWaitingForResponse = true;
+          currentWaitingTarget = msg.waitingTarget || 'AI';
+          showLoadingBubble(currentWaitingTarget);
+        } else if (!msg.isWaiting && isWaitingForResponse && !window.arenaResultsCache) {
+          isWaitingForResponse = false;
+          removeLoadingBubble();
+        }
+        if (msg.arenaResults && msg.arenaResults.length > 0) {
+          window.arenaResultsCache = msg.arenaResults;
+          window.arenaIsComplete = !!msg.isArenaComplete;
+          renderArenaInChat(msg.arenaResults, msg.isArenaComplete);
+        }
+        persistState();
+      }
+
       if (msg.type === 'STATUS_UPDATE') {
         renderChips(msg.connected || []);
         if (msg.hasPendingDiff) {
@@ -1084,7 +1238,9 @@ Please analyze this error and provide an explanation or fix.`;
         const hasPendingAiMsg = msg.activeMessages && msg.activeMessages.length > 0 &&
                                 msg.activeMessages[msg.activeMessages.length - 1].sender === 'assistant';
         if (hasPendingAiMsg) {
+          isWaitingForResponse = false;
           removeLoadingBubble();
+          persistState();
         }
         renderSessionsDrawer(msg.sessions || [], msg.activeSessionId);
         renderMessages(msg.activeMessages || []);
@@ -1094,9 +1250,14 @@ Please analyze this error and provide an explanation or fix.`;
       }
 
       if (msg.type === 'ARENA_RESULTS') {
-        isWaitingForResponse = false;
-        removeLoadingBubble();
+        window.arenaResultsCache = msg.results || [];
+        window.arenaIsComplete = !!msg.isComplete;
+        if (msg.isComplete) {
+          isWaitingForResponse = false;
+          removeLoadingBubble();
+        }
         renderArenaInChat(msg.results || [], msg.isComplete);
+        persistState();
       }
 
       if (msg.type === 'DIFF_READY') {
@@ -1109,10 +1270,6 @@ Please analyze this error and provide an explanation or fix.`;
 
       if (msg.type === 'WORKSPACE_FILES_RESULT') {
         renderMentions(msg.files || []);
-      }
-
-      if (msg.type === 'ARENA_RESULTS') {
-        renderArenaInChat(msg.results || [], msg.isComplete);
       }
     });
 
@@ -1149,35 +1306,87 @@ Please analyze this error and provide an explanation or fix.`;
     }
 
     function renderMessages(messages) {
+      window.lastRenderedMessages = messages || [];
       chatContainer.innerHTML = '';
-      if (messages.length === 0) {
+      if (!messages || messages.length === 0) {
         chatContainer.innerHTML = \`
           <div class="message-bubble ai-msg-wrapper">
             <div class="sender-header">AiDot</div>
             <div class="message-text">New conversation started. Ask any question or request code modifications!</div>
           </div>
         \`;
-        return;
+      } else {
+        messages.forEach(msg => {
+          const bubble = document.createElement('div');
+          bubble.className = 'message-bubble ' + (msg.sender === 'user' ? 'user-msg-wrapper' : 'ai-msg-wrapper');
+
+          if (msg.provider === 'Arena' && msg.arenaResults && msg.arenaResults.length > 0) {
+            bubble.innerHTML = \`<div class="sender-header">⚔️ Arena Mode Responses</div>\`;
+            const grid = document.createElement('div');
+            grid.className = 'arena-grid';
+            msg.arenaResults.forEach(res => {
+              const hasDiff = res.code && res.code.includes('<<<<<<< SEARCH') && 
+                              res.code.includes('>>>>>>> REPLACE') && 
+                              !res.code.includes('exact lines to find in original file');
+              const displayText = res.rawText || res.code || '';
+              const card = document.createElement('div');
+              card.className = 'arena-card';
+              card.innerHTML = \`
+                <div style="font-weight:600; font-size:12px; display:flex; justify-content:space-between; margin-bottom:4px;">
+                  <span style="color:var(--accent);">\${escapeHtml(res.provider)}</span>
+                  <span style="font-size:10px; color:var(--green);">Ready</span>
+                </div>
+                <div style="font-size:12px; line-height:1.5; max-height:220px; overflow-y:auto; white-space:pre-wrap; color:var(--fg); margin-bottom:6px;">\${escapeHtml(displayText)}</div>
+                \${hasDiff ? \`
+                  <button class="icon-btn" style="align-self:flex-start;" onclick="previewArenaDiff('\${escapeHtml(res.provider)}')">
+                    Preview \${escapeHtml(res.provider)} Diff
+                  </button>
+                \` : ''}
+              \`;
+              grid.appendChild(card);
+            });
+            bubble.appendChild(grid);
+            chatContainer.appendChild(bubble);
+            return;
+          }
+
+          let html = '';
+          if (msg.sender === 'assistant') {
+            html += \`<div class="sender-header">\${escapeHtml(msg.provider || 'AiDot')}</div>\`;
+          }
+
+          html += \`<div class="message-text">\${escapeHtml(msg.text)}</div>\`;
+
+          if (msg.code && msg.code !== msg.text) {
+            html += \`<div class="code-snippet">\${escapeHtml(msg.code)}</div>\`;
+          }
+
+          if (msg.hasDiff && msg.code) {
+            html += \`
+              <div style="margin-top:6px; display:flex; gap:8px;">
+                <button class="icon-btn" onclick="previewDiffCode('\${escapeHtml(msg.id)}')">
+                  🔍 Preview Proposed Diff
+                </button>
+              </div>
+            \`;
+          }
+
+          bubble.innerHTML = html;
+          chatContainer.appendChild(bubble);
+        });
       }
 
-      messages.forEach(msg => {
-        const bubble = document.createElement('div');
-        bubble.className = 'message-bubble ' + (msg.sender === 'user' ? 'user-msg-wrapper' : 'ai-msg-wrapper');
+      // Re-append active or in-flight Arena cards if not already part of session messages
+      const lastMsg = messages && messages.length > 0 ? messages[messages.length - 1] : null;
+      const lastMsgHasSameArena = lastMsg && lastMsg.provider === 'Arena' && lastMsg.arenaResults;
+      if (!lastMsgHasSameArena && window.arenaResultsCache && window.arenaResultsCache.length > 0) {
+        renderArenaInChat(window.arenaResultsCache, window.arenaIsComplete);
+      }
 
-        let html = '';
-        if (msg.sender === 'assistant') {
-          html += \`<div class="sender-header">\${msg.provider || 'AiDot'}</div>\`;
-        }
-
-        html += \`<div class="message-text">\${escapeHtml(msg.text)}</div>\`;
-
-        if (msg.code && msg.code !== msg.text) {
-          html += \`<div class="code-snippet">\${escapeHtml(msg.code)}</div>\`;
-        }
-
-        bubble.innerHTML = html;
-        chatContainer.appendChild(bubble);
-      });
+      // Restore loading indicator if active
+      if (isWaitingForResponse) {
+        showLoadingBubble(currentWaitingTarget);
+      }
 
       chatContainer.scrollTop = chatContainer.scrollHeight;
     }
@@ -1200,6 +1409,8 @@ Please analyze this error and provide an explanation or fix.`;
           const after = text.substring(promptInput.selectionStart);
           promptInput.value = before + '@' + f.path + ' ' + after;
           promptInput.focus();
+          persistState();
+          vscode.postMessage({ type: 'DRAFT_UPDATE', draft: promptInput.value });
           closeMentions();
         });
         mentionDropdown.appendChild(item);
@@ -1221,7 +1432,7 @@ Please analyze this error and provide an explanation or fix.`;
       const grid = document.getElementById('arenaGrid');
       grid.innerHTML = '';
       results.forEach(res => {
-        const hasDiff = res.code.includes('<<<<<<< SEARCH') && 
+        const hasDiff = res.code && res.code.includes('<<<<<<< SEARCH') && 
                         res.code.includes('>>>>>>> REPLACE') && 
                         !res.code.includes('exact lines to find in original file');
         const displayText = res.rawText || res.code || '';
@@ -1229,29 +1440,54 @@ Please analyze this error and provide an explanation or fix.`;
         card.className = 'arena-card';
         card.innerHTML = \`
           <div style="font-weight:600; font-size:12px; display:flex; justify-content:space-between; margin-bottom:4px;">
-            <span style="color:var(--accent);">\${res.provider}</span>
-            <span style="font-size:10px; color:var(--green);">Ready</span>
+            <span style="color:var(--accent);">\${escapeHtml(res.provider)}</span>
+            <span style="font-size:10px; color:var(--green);">\${isComplete ? 'Ready' : 'Streaming...'}</span>
           </div>
           <div style="font-size:12px; line-height:1.5; max-height:220px; overflow-y:auto; white-space:pre-wrap; color:var(--fg); margin-bottom:6px;">\${escapeHtml(displayText)}</div>
           \${hasDiff ? \`
-            <button class="icon-btn" style="align-self:flex-start;" onclick="previewArenaDiff('\${res.provider}')">
-              Preview \${res.provider} Diff
+            <button class="icon-btn" style="align-self:flex-start;" onclick="previewArenaDiff('\${escapeHtml(res.provider)}')">
+              Preview \${escapeHtml(res.provider)} Diff
             </button>
           \` : ''}
         \`;
         grid.appendChild(card);
       });
       window.arenaResultsCache = results;
+      window.arenaIsComplete = isComplete;
+      persistState();
       chatContainer.scrollTop = chatContainer.scrollHeight;
     }
 
     window.previewArenaDiff = function(provider) {
-      const match = (window.arenaResultsCache || []).find(r => r.provider === provider);
-      if (match) {
+      let match = (window.arenaResultsCache || []).find(r => r.provider === provider);
+      if (!match && window.lastRenderedMessages) {
+        for (let i = window.lastRenderedMessages.length - 1; i >= 0; i--) {
+          const m = window.lastRenderedMessages[i];
+          if (m.arenaResults) {
+            const found = m.arenaResults.find(r => r.provider === provider);
+            if (found) {
+              match = found;
+              break;
+            }
+          }
+        }
+      }
+      if (match && match.code) {
         vscode.postMessage({
           type: 'PREVIEW_ARENA_DIFF',
           code: match.code,
           provider
+        });
+      }
+    };
+
+    window.previewDiffCode = function(msgId) {
+      const msg = (window.lastRenderedMessages || []).find(m => m.id === msgId);
+      if (msg && msg.code) {
+        vscode.postMessage({
+          type: 'PREVIEW_ARENA_DIFF',
+          code: msg.code,
+          provider: msg.provider || 'AiDot'
         });
       }
     };
@@ -1273,3 +1509,4 @@ Please analyze this error and provide an explanation or fix.`;
 </html>`;
   }
 }
+

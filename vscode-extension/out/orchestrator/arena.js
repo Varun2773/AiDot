@@ -54,6 +54,12 @@ class ArenaOrchestrator {
     getResults() {
         return this.collectedResults;
     }
+    isPending() {
+        return this.pendingProviders.size > 0;
+    }
+    getPendingProviders() {
+        return [...this.pendingProviders];
+    }
     reset() {
         this.currentArenaId = null;
         this.pendingProviders.clear();

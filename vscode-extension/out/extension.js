@@ -96,13 +96,28 @@ async function activate(context) {
                 }
                 else {
                     router.clearRequest(msg.requestId || '');
-                    const editor = vscode.window.activeTextEditor;
+                    let targetDoc = null;
+                    const targetUri = diffManager.getTargetFileUri();
+                    if (targetUri) {
+                        try {
+                            targetDoc = await vscode.workspace.openTextDocument(targetUri);
+                        }
+                        catch (e) {
+                            console.warn('[AiDot] Could not open target file URI:', e);
+                        }
+                    }
+                    if (!targetDoc) {
+                        const editor = vscode.window.activeTextEditor;
+                        if (editor && editor.document.uri.scheme === 'file') {
+                            targetDoc = editor.document;
+                        }
+                    }
                     let hasDiff = false;
                     const isRealDiff = msg.code.includes('<<<<<<< SEARCH') &&
                         msg.code.includes('>>>>>>> REPLACE') &&
                         !msg.code.includes('exact lines to find in original file');
-                    if (editor && isRealDiff) {
-                        hasDiff = await diffManager.previewDiff(editor.document, msg.code);
+                    if (targetDoc && isRealDiff) {
+                        hasDiff = await diffManager.previewDiff(targetDoc, msg.code);
                         if (hasDiff) {
                             vscode.window.showInformationMessage(`AiDot: Diff proposed by ${msg.provider}. Review changes!`);
                         }

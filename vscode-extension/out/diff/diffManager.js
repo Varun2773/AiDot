@@ -41,16 +41,57 @@ class DiffManager {
     onDidChangeEmitter = new vscode.EventEmitter();
     onDidChange = this.onDidChangeEmitter.event;
     pendingProposedContent = '';
+    originalSnapshot = '';
     targetEditorUri = null;
     currentDiffUri = null;
+    setTargetFileUri(uri) {
+        this.targetEditorUri = uri;
+    }
+    getTargetFileUri() {
+        return this.targetEditorUri;
+    }
     provideTextDocumentContent(uri) {
         return this.pendingProposedContent;
+    }
+    /**
+     * Safely closes any open native diff editor tabs matching DiffManager.SCHEME
+     */
+    async closeDiffEditor() {
+        try {
+            for (const group of vscode.window.tabGroups.all) {
+                for (const tab of group.tabs) {
+                    const input = tab.input;
+                    if (input &&
+                        ((input.modified && input.modified.scheme === DiffManager.SCHEME) ||
+                            (input.original && input.original.scheme === DiffManager.SCHEME))) {
+                        await vscode.window.tabGroups.close(tab);
+                    }
+                }
+            }
+        }
+        catch (e) {
+            console.warn('[AiDot] Error closing diff tab:', e);
+        }
+        const active = vscode.window.activeTextEditor;
+        if (active && active.document.uri.scheme === DiffManager.SCHEME) {
+            await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+        }
     }
     /**
      * Generates patched code, opens side-by-side diff in VS Code
      */
     async previewDiff(targetDoc, aiOutput) {
+        // Prevent diffing against another diff tab
+        if (targetDoc.uri.scheme === DiffManager.SCHEME) {
+            if (this.targetEditorUri) {
+                targetDoc = await vscode.workspace.openTextDocument(this.targetEditorUri);
+            }
+            else {
+                return false;
+            }
+        }
         const originalText = targetDoc.getText();
+        this.originalSnapshot = originalText;
         const blocks = patcher_1.Patcher.parseBlocks(aiOutput);
         let updatedText = '';
         if (blocks.length > 0) {
@@ -89,10 +130,10 @@ class DiffManager {
             editBuilder.replace(fullRange, this.pendingProposedContent);
         });
         if (success) {
+            await doc.save();
             vscode.window.showInformationMessage('✅ AiDot: Changes accepted and applied successfully!');
             this.clear();
-            // Close the diff tab if open
-            await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+            await this.closeDiffEditor();
         }
         return success;
     }
@@ -100,9 +141,31 @@ class DiffManager {
      * Rejects proposed diff and closes the diff tab
      */
     async rejectDiff() {
+        const targetUri = this.targetEditorUri;
+        const snapshot = this.originalSnapshot;
         this.clear();
-        vscode.window.showInformationMessage('❌ AiDot: Proposed changes rejected.');
-        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+        await this.closeDiffEditor();
+        if (targetUri) {
+            try {
+                const doc = await vscode.workspace.openTextDocument(targetUri);
+                const editor = await vscode.window.showTextDocument(doc);
+                // If document was dirty or modified, restore snapshot byte-for-byte and save
+                if (snapshot && doc.getText() !== snapshot) {
+                    const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
+                    await editor.edit((editBuilder) => {
+                        editBuilder.replace(fullRange, snapshot);
+                    });
+                    await doc.save();
+                }
+                else if (doc.isDirty) {
+                    await vscode.commands.executeCommand('workbench.action.files.revert');
+                }
+            }
+            catch (e) {
+                console.warn('[AiDot] Error restoring doc on reject:', e);
+            }
+        }
+        vscode.window.showInformationMessage('❌ AiDot: Proposed changes rejected. File untouched.');
     }
     hasPendingDiff() {
         return !!this.pendingProposedContent;
@@ -112,6 +175,7 @@ class DiffManager {
     }
     clear() {
         this.pendingProposedContent = '';
+        this.originalSnapshot = '';
         this.targetEditorUri = null;
         this.currentDiffUri = null;
     }

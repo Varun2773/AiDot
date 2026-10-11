@@ -74,9 +74,18 @@ export class ArenaOrchestrator {
     return this.collectedResults;
   }
 
+  public isPending(): boolean {
+    return this.pendingProviders.size > 0;
+  }
+
+  public getPendingProviders(): ProviderName[] {
+    return [...this.pendingProviders];
+  }
+
   public reset() {
     this.currentArenaId = null;
     this.pendingProviders.clear();
     this.collectedResults = [];
   }
 }
+
