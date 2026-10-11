@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "aiDot - Web Chat Companion Bridge",
+  "version": "1.0.0",
+  "description": "Bridges free web AI chats (ChatGPT, Claude, Gemini, DeepSeek) to VS Code with auto-failover and agentic editing.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://chat.deepseek.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://chat.deepseek.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "aiDot Companion Status"
+  }
+}

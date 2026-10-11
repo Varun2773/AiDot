@@ -1,0 +1,57 @@
+{
+  "version": "1.0.0",
+  "providers": {
+    "ChatGPT": {
+      "host": "chatgpt.com",
+      "inputSelector": "#prompt-textarea",
+      "sendBtnSelector": "button[data-testid=\"send-button\"], button[aria-label=\"Send prompt\"]",
+      "stopBtnSelector": "button[data-testid=\"stop-button\"]",
+      "codeSelector": "pre code",
+      "limitKeywords": [
+        "reached your",
+        "usage cap",
+        "limit of messages",
+        "upgrade to plus",
+        "too many requests"
+      ]
+    },
+    "Claude": {
+      "host": "claude.ai",
+      "inputSelector": "div.ProseMirror[contenteditable=\"true\"]",
+      "sendBtnSelector": "button[aria-label=\"Send Message\"], button[aria-label=\"Send message\"], button[data-testid=\"send-button\"]",
+      "stopBtnSelector": "button[aria-label=\"Stop Response\"], button[aria-label=\"Stop response\"]",
+      "codeSelector": "pre code",
+      "limitKeywords": [
+        "out of free messages",
+        "message limit",
+        "reset at",
+        "subscribe to pro",
+        "free tier limit"
+      ]
+    },
+    "Gemini": {
+      "host": "gemini.google.com",
+      "inputSelector": "rich-textarea div.ql-editor[contenteditable=\"true\"]",
+      "sendBtnSelector": "button.send-button, button[aria-label=\"Send message\"]",
+      "stopBtnSelector": "button[aria-label=\"Stop response\"]",
+      "codeSelector": "code-block pre code, pre code",
+      "limitKeywords": [
+        "reached your limit",
+        "try again later",
+        "limit reached"
+      ]
+    },
+    "DeepSeek": {
+      "host": "chat.deepseek.com",
+      "inputSelector": "textarea#chat-input, textarea[placeholder*=\"DeepSeek\"]",
+      "sendBtnSelector": "div[role=\"button\"][aria-label=\"Send\"], button[aria-label=\"Send\"]",
+      "stopBtnSelector": "div[role=\"button\"][aria-label=\"Stop\"], button[aria-label=\"Stop\"]",
+      "codeSelector": "pre code",
+      "limitKeywords": [
+        "server is busy",
+        "rate limit",
+        "too many requests"
+      ]
+    }
+  }
+}

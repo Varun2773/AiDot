@@ -1,0 +1,75 @@
+{
+  "name": "aidot-vscode",
+  "displayName": "aiDot - Web AI Assistant",
+  "description": "Agentic coding assistant powered by free web AI chats (Claude, ChatGPT, Gemini, DeepSeek) with interactive diffs and auto-failover.",
+  "version": "1.0.0",
+  "publisher": "aidot",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aidotContainer",
+          "title": "aiDot",
+          "icon": "$(sparkle)"
+        }
+      ]
+    },
+    "views": {
+      "aidotContainer": [
+        {
+          "type": "webview",
+          "id": "aidot.sidebar",
+          "name": "aiDot Web AI"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "aidot.askAI",
+        "title": "aiDot: Ask AI to Edit Selected Code"
+      },
+      {
+        "command": "aidot.fixTerminalError",
+        "title": "aiDot: Fix Last Terminal Error"
+      },
+      {
+        "command": "aidot.arenaPrompt",
+        "title": "aiDot: Arena Mode (Ask All Connected AI)"
+      },
+      {
+        "command": "aidot.acceptDiff",
+        "title": "aiDot: Accept Diff"
+      },
+      {
+        "command": "aidot.rejectDiff",
+        "title": "aiDot: Reject Diff"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.12",
+    "typescript": "^5.6.3"
+  }
+}
