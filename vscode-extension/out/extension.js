@@ -47,7 +47,7 @@ const terminalWatcher_1 = require("./terminal/terminalWatcher");
 const sidebarProvider_1 = require("./sidebar/sidebarProvider");
 let server;
 async function activate(context) {
-    console.log('[aiDot] Extension activating...');
+    console.log('[AiDot] Extension activating...');
     // 1. Initialize Core Services
     server = new wsServer_1.WsBridgeServer(8765);
     const router = new router_1.MultiProviderRouter(server);
@@ -66,7 +66,7 @@ async function activate(context) {
             case 'REGISTER_PROVIDER': {
                 router.registerProvider(msg.provider);
                 sidebarProvider.syncStatus();
-                vscode.window.showInformationMessage(`aiDot: ${msg.provider} web tab connected!`);
+                vscode.window.showInformationMessage(`AiDot: ${msg.provider} web tab connected!`);
                 break;
             }
             case 'PROVIDER_DISCONNECTED': {
@@ -75,13 +75,13 @@ async function activate(context) {
                 break;
             }
             case 'RATE_LIMIT_HIT': {
-                vscode.window.showWarningMessage(`aiDot: ${msg.provider} hit free tier limit! Auto-failing over...`);
+                vscode.window.showWarningMessage(`AiDot: ${msg.provider} hit free tier limit! Auto-failing over...`);
                 const next = router.handleRateLimitHit(msg.provider, msg.requestId);
                 if (next) {
-                    vscode.window.showInformationMessage(`aiDot: Prompt forwarded to ${next.nextProvider}`);
+                    vscode.window.showInformationMessage(`AiDot: Prompt forwarded to ${next.nextProvider}`);
                 }
                 else {
-                    vscode.window.showErrorMessage('aiDot: All connected AI tabs have hit rate limits or are disconnected.');
+                    vscode.window.showErrorMessage('AiDot: All connected AI tabs have hit rate limits or are disconnected.');
                 }
                 sidebarProvider.syncStatus();
                 break;
@@ -96,7 +96,7 @@ async function activate(context) {
                     if (editor) {
                         const hasDiff = await diffManager.previewDiff(editor.document, msg.code);
                         if (hasDiff) {
-                            vscode.window.showInformationMessage(`aiDot: Received response from ${msg.provider}. Diff opened for review!`);
+                            vscode.window.showInformationMessage(`AiDot: Received response from ${msg.provider}. Diff opened for review!`);
                             sidebarProvider.syncStatus();
                         }
                     }
@@ -120,12 +120,12 @@ async function activate(context) {
                 server.syncSelectors(selectorsData.providers);
             }
             catch (e) {
-                console.error('[aiDot] Error syncing selectors.json:', e);
+                console.error('[AiDot] Error syncing selectors.json:', e);
             }
         }
     }
     catch (err) {
-        vscode.window.showErrorMessage(`aiDot failed to start server on port 8765: ${err}`);
+        vscode.window.showErrorMessage(`AiDot failed to start server on port 8765: ${err}`);
     }
     // 5. Register Commands
     context.subscriptions.push(vscode.commands.registerCommand('aidot.askAI', async () => {
@@ -140,7 +140,7 @@ async function activate(context) {
             return;
         }
         const instruction = await vscode.window.showInputBox({
-            prompt: 'aiDot: What changes should the AI make in this file?'
+            prompt: 'AiDot: What changes should the AI make in this file?'
         });
         if (!instruction)
             return;

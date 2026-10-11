@@ -25,7 +25,7 @@ export class DiffManager implements vscode.TextDocumentContentProvider {
     if (blocks.length > 0) {
       const result = Patcher.applyBlocks(originalText, blocks);
       if (result.appliedCount === 0) {
-        vscode.window.showWarningMessage('aiDot: Found SEARCH/REPLACE blocks, but none matched the current file lines.');
+        vscode.window.showWarningMessage('AiDot: Found SEARCH/REPLACE blocks, but none matched the current file lines.');
         return false;
       }
       updatedText = result.updatedText;
@@ -41,7 +41,7 @@ export class DiffManager implements vscode.TextDocumentContentProvider {
     this.currentDiffUri = vscode.Uri.parse(`${DiffManager.SCHEME}://preview/${fileName}`);
     this.onDidChangeEmitter.fire(this.currentDiffUri);
 
-    const title = `aiDot Proposed Changes ↔ ${fileName}`;
+    const title = `AiDot Proposed Changes ↔ ${fileName}`;
     await vscode.commands.executeCommand('vscode.diff', targetDoc.uri, this.currentDiffUri, title);
     return true;
   }
@@ -68,7 +68,7 @@ export class DiffManager implements vscode.TextDocumentContentProvider {
     });
 
     if (success) {
-      vscode.window.showInformationMessage('✅ aiDot: Changes accepted and applied successfully!');
+      vscode.window.showInformationMessage('✅ AiDot: Changes accepted and applied successfully!');
       this.clear();
       // Close the diff tab if open
       await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
@@ -81,7 +81,7 @@ export class DiffManager implements vscode.TextDocumentContentProvider {
    */
   public async rejectDiff(): Promise<void> {
     this.clear();
-    vscode.window.showInformationMessage('❌ aiDot: Proposed changes rejected.');
+    vscode.window.showInformationMessage('❌ AiDot: Proposed changes rejected.');
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
   }
 

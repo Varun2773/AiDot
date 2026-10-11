@@ -35,7 +35,7 @@ export class AgentLoop {
 
   public buildSystemPrompt(userTask: string, fileContext: string, fileName: string): string {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-    return `You are aiDot, an agentic coding assistant running directly inside VS Code.
+    return `You are AiDot, an agentic coding assistant running directly inside VS Code.
 Workspace root: ${workspaceRoot}
 Active file: ${fileName}
 
@@ -128,7 +128,7 @@ Always prioritize proposing SEARCH/REPLACE blocks when code modifications are re
         
         // Safety prompt for user approval
         const answer = await vscode.window.showInformationMessage(
-          `aiDot wants to run terminal command: "${cmd}". Allow?`,
+          `AiDot wants to run terminal command: "${cmd}". Allow?`,
           'Yes, Run',
           'Cancel'
         );
@@ -137,7 +137,7 @@ Always prioritize proposing SEARCH/REPLACE blocks when code modifications are re
           return 'Command execution was cancelled by user.';
         }
 
-        const terminal = vscode.window.createTerminal('aiDot Terminal');
+        const terminal = vscode.window.createTerminal('AiDot Terminal');
         terminal.show();
         terminal.sendText(cmd);
         return `Command "${cmd}" sent to terminal.`;

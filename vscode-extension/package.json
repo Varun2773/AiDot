@@ -1,6 +1,6 @@
 {
   "name": "aidot-vscode",
-  "displayName": "aiDot - Web AI Assistant",
+  "displayName": "AiDot - Web AI Assistant",
   "description": "Agentic coding assistant powered by free web AI chats (Claude, ChatGPT, Gemini, DeepSeek) with interactive diffs and auto-failover.",
   "version": "1.0.0",
   "publisher": "aidot",
@@ -21,7 +21,7 @@
       "activitybar": [
         {
           "id": "aidotContainer",
-          "title": "aiDot",
+          "title": "AiDot",
           "icon": "$(sparkle)"
         }
       ]
@@ -31,30 +31,30 @@
         {
           "type": "webview",
           "id": "aidot.sidebar",
-          "name": "aiDot Web AI"
+          "name": "AiDot Web AI"
         }
       ]
     },
     "commands": [
       {
         "command": "aidot.askAI",
-        "title": "aiDot: Ask AI to Edit Selected Code"
+        "title": "AiDot: Ask AI to Edit Selected Code"
       },
       {
         "command": "aidot.fixTerminalError",
-        "title": "aiDot: Fix Last Terminal Error"
+        "title": "AiDot: Fix Last Terminal Error"
       },
       {
         "command": "aidot.arenaPrompt",
-        "title": "aiDot: Arena Mode (Ask All Connected AI)"
+        "title": "AiDot: Arena Mode (Ask All Connected AI)"
       },
       {
         "command": "aidot.acceptDiff",
-        "title": "aiDot: Accept Diff"
+        "title": "AiDot: Accept Diff"
       },
       {
         "command": "aidot.rejectDiff",
-        "title": "aiDot: Reject Diff"
+        "title": "AiDot: Reject Diff"
       }
     ]
   },

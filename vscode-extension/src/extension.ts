@@ -13,7 +13,7 @@ import { ProviderName } from './server/protocol';
 let server: WsBridgeServer;
 
 export async function activate(context: vscode.ExtensionContext) {
-  console.log('[aiDot] Extension activating...');
+  console.log('[AiDot] Extension activating...');
 
   // 1. Initialize Core Services
   server = new WsBridgeServer(8765);
@@ -48,7 +48,7 @@ export async function activate(context: vscode.ExtensionContext) {
       case 'REGISTER_PROVIDER': {
         router.registerProvider(msg.provider);
         sidebarProvider.syncStatus();
-        vscode.window.showInformationMessage(`aiDot: ${msg.provider} web tab connected!`);
+        vscode.window.showInformationMessage(`AiDot: ${msg.provider} web tab connected!`);
         break;
       }
 
@@ -59,12 +59,12 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       case 'RATE_LIMIT_HIT': {
-        vscode.window.showWarningMessage(`aiDot: ${msg.provider} hit free tier limit! Auto-failing over...`);
+        vscode.window.showWarningMessage(`AiDot: ${msg.provider} hit free tier limit! Auto-failing over...`);
         const next = router.handleRateLimitHit(msg.provider, msg.requestId);
         if (next) {
-          vscode.window.showInformationMessage(`aiDot: Prompt forwarded to ${next.nextProvider}`);
+          vscode.window.showInformationMessage(`AiDot: Prompt forwarded to ${next.nextProvider}`);
         } else {
-          vscode.window.showErrorMessage('aiDot: All connected AI tabs have hit rate limits or are disconnected.');
+          vscode.window.showErrorMessage('AiDot: All connected AI tabs have hit rate limits or are disconnected.');
         }
         sidebarProvider.syncStatus();
         break;
@@ -79,7 +79,7 @@ export async function activate(context: vscode.ExtensionContext) {
           if (editor) {
             const hasDiff = await diffManager.previewDiff(editor.document, msg.code);
             if (hasDiff) {
-              vscode.window.showInformationMessage(`aiDot: Received response from ${msg.provider}. Diff opened for review!`);
+              vscode.window.showInformationMessage(`AiDot: Received response from ${msg.provider}. Diff opened for review!`);
               sidebarProvider.syncStatus();
             }
           }
@@ -104,11 +104,11 @@ export async function activate(context: vscode.ExtensionContext) {
         const selectorsData = JSON.parse(raw);
         server.syncSelectors(selectorsData.providers);
       } catch (e) {
-        console.error('[aiDot] Error syncing selectors.json:', e);
+        console.error('[AiDot] Error syncing selectors.json:', e);
       }
     }
   } catch (err) {
-    vscode.window.showErrorMessage(`aiDot failed to start server on port 8765: ${err}`);
+    vscode.window.showErrorMessage(`AiDot failed to start server on port 8765: ${err}`);
   }
 
   // 5. Register Commands
@@ -127,7 +127,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       const instruction = await vscode.window.showInputBox({
-        prompt: 'aiDot: What changes should the AI make in this file?'
+        prompt: 'AiDot: What changes should the AI make in this file?'
       });
       if (!instruction) return;
 

@@ -190,7 +190,7 @@ Please analyze the error and patch the active file to resolve it.`;
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>aiDot Web AI</title>
+  <title>AiDot Web AI</title>
   <style>
     :root {
       --bg: var(--vscode-editor-background);
@@ -351,7 +351,7 @@ Please analyze the error and patch the active file to resolve it.`;
 </head>
 <body>
   <div class="header">
-    <div class="title">⚡ aiDot Web AI</div>
+    <div class="title">⚡ AiDot Web AI</div>
     <div id="statusBadge" class="badge">Checking tabs...</div>
   </div>
 

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "aiDot - Web Chat Companion Bridge",
+  "name": "AiDot - Web Chat Companion Bridge",
   "version": "1.0.0",
   "description": "Bridges free web AI chats (ChatGPT, Claude, Gemini, DeepSeek) to VS Code with auto-failover and agentic editing.",
   "permissions": [
