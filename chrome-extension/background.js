@@ -97,17 +97,32 @@ async function handleVSCodeMessage(message) {
         prompt,
         requestId,
         isArena
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.warn(`[aiDot ServiceWorker] Failed to contact tab ${tabId}:`, chrome.runtime.lastError.message);
-          activeTabs.delete(provider);
-          sendToVSCode({
-            type: 'RATE_LIMIT_HIT',
-            provider,
-            requestId,
-            originalPrompt: prompt,
-            reason: 'Tab unreachable or closed'
-          });
+      }, async (response) => {
+        if (chrome.runtime.lastError || !response) {
+          console.warn(`[aiDot ServiceWorker] Tab ${tabId} message failed, re-injecting content script...`);
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId },
+              files: ['content.js']
+            });
+            setTimeout(() => {
+              chrome.tabs.sendMessage(tabId, {
+                type: 'EXECUTE_PROMPT',
+                prompt,
+                requestId,
+                isArena
+              });
+            }, 300);
+          } catch (e) {
+            console.error('[aiDot ServiceWorker] Re-injection failed:', e);
+            sendToVSCode({
+              type: 'RATE_LIMIT_HIT',
+              provider,
+              requestId,
+              originalPrompt: prompt,
+              reason: 'Tab unreachable or script execution blocked'
+            });
+          }
         }
       });
       break;
@@ -185,21 +200,64 @@ chrome.tabs.onRemoved.addListener((closedTabId) => {
   }
 });
 
-function queryAndRegisterAllTabs() {
-  chrome.tabs.query({}, (tabs) => {
-    tabs.forEach((tab) => {
-      chrome.tabs.sendMessage(tab.id, { type: 'QUERY_PROVIDER' }, (response) => {
-        if (!chrome.runtime.lastError && response && response.provider) {
-          activeTabs.set(response.provider, tab.id);
-          sendToVSCode({
-            type: 'REGISTER_PROVIDER',
-            provider: response.provider
-          });
-        }
-      });
-    });
+const AI_DOMAINS = [
+  { match: 'chatgpt.com', provider: 'ChatGPT' },
+  { match: 'claude.ai', provider: 'Claude' },
+  { match: 'gemini.google.com', provider: 'Gemini' },
+  { match: 'deepseek.com', provider: 'DeepSeek' }
+];
+
+async function queryAndRegisterAllTabs() {
+  chrome.tabs.query({}, async (tabs) => {
+    for (const tab of tabs) {
+      if (!tab.url) continue;
+
+      const matchedDomain = AI_DOMAINS.find(d => tab.url.includes(d.match));
+      if (matchedDomain) {
+        // Try messaging the content script first
+        chrome.tabs.sendMessage(tab.id, { type: 'QUERY_PROVIDER' }, async (response) => {
+          if (chrome.runtime.lastError || !response || !response.provider) {
+            // Content script was not yet injected into this tab (e.g. opened before extension loaded)
+            try {
+              console.log(`[aiDot ServiceWorker] Injecting content script into ${matchedDomain.provider} tab: ${tab.id}`);
+              await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                files: ['content.js']
+              });
+              activeTabs.set(matchedDomain.provider, tab.id);
+              sendToVSCode({
+                type: 'REGISTER_PROVIDER',
+                provider: matchedDomain.provider
+              });
+            } catch (err) {
+              console.warn('[aiDot ServiceWorker] Could not inject content script:', err);
+            }
+          } else {
+            activeTabs.set(response.provider, tab.id);
+            sendToVSCode({
+              type: 'REGISTER_PROVIDER',
+              provider: response.provider
+            });
+          }
+        });
+      }
+    }
   });
 }
+
+// Watch for newly navigated or updated tabs
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.url) {
+    const matchedDomain = AI_DOMAINS.find(d => tab.url.includes(d.match));
+    if (matchedDomain) {
+      activeTabs.set(matchedDomain.provider, tabId);
+      sendToVSCode({
+        type: 'REGISTER_PROVIDER',
+        provider: matchedDomain.provider
+      });
+    }
+  }
+});
 
 // Initial connection
 connectToVSCode();

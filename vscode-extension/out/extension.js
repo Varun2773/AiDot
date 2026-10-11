@@ -58,8 +58,12 @@ async function activate(context) {
     // Register virtual document provider for diff preview
     context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(diffManager_1.DiffManager.SCHEME, diffManager));
     // 2. Register Sidebar Webview
-    const sidebarProvider = new sidebarProvider_1.SidebarProvider(context.extensionUri, router, arena, agentLoop, diffManager, terminalWatcher);
+    const sidebarProvider = new sidebarProvider_1.SidebarProvider(context.extensionUri, router, arena, agentLoop, diffManager, terminalWatcher, context.globalState);
     context.subscriptions.push(vscode.window.registerWebviewViewProvider(sidebarProvider_1.SidebarProvider.viewType, sidebarProvider));
+    // Sync active file when user switches editor files
+    context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(() => {
+        sidebarProvider.syncActiveFileContext();
+    }));
     // 3. Setup WebSocket message handling from Chrome Companion
     server.onMessage(async (msg) => {
         switch (msg.type) {
@@ -93,13 +97,19 @@ async function activate(context) {
                 else {
                     router.clearRequest(msg.requestId || '');
                     const editor = vscode.window.activeTextEditor;
-                    if (editor) {
-                        const hasDiff = await diffManager.previewDiff(editor.document, msg.code);
+                    let hasDiff = false;
+                    const isRealDiff = msg.code.includes('<<<<<<< SEARCH') &&
+                        msg.code.includes('>>>>>>> REPLACE') &&
+                        !msg.code.includes('exact lines to find in original file');
+                    if (editor && isRealDiff) {
+                        hasDiff = await diffManager.previewDiff(editor.document, msg.code);
                         if (hasDiff) {
-                            vscode.window.showInformationMessage(`AiDot: Received response from ${msg.provider}. Diff opened for review!`);
-                            sidebarProvider.syncStatus();
+                            vscode.window.showInformationMessage(`AiDot: Diff proposed by ${msg.provider}. Review changes!`);
                         }
                     }
+                    // Log response in chat history view
+                    sidebarProvider.handleIncomingAIResponse(msg.provider, msg.fullText || msg.rawText || msg.code, msg.code, hasDiff);
+                    sidebarProvider.syncStatus();
                 }
                 break;
             }

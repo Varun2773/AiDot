@@ -4,16 +4,13 @@ export class TerminalWatcher {
   private lastErrorText: string = '';
 
   constructor() {
-    // If proposed onDidWriteTerminalData is available in proposed API environments, attach it safely
-    const win = vscode.window as any;
-    if (typeof win.onDidWriteTerminalData === 'function') {
-      win.onDidWriteTerminalData((e: any) => {
-        const text = e.data || '';
-        if (text.includes('Error:') || text.includes('ERR!') || text.includes('FAILED') || text.includes('Exception')) {
-          this.lastErrorText = text;
-        }
-      });
-    }
+    // Standard terminal watcher using stable VS Code APIs
+    // Listens for terminal closures / execution lifecycle
+    vscode.window.onDidCloseTerminal((terminal) => {
+      if (terminal.exitStatus && terminal.exitStatus.code !== 0) {
+        this.lastErrorText = `Terminal "${terminal.name}" exited with error code ${terminal.exitStatus.code}.`;
+      }
+    });
   }
 
   public setLastError(errorSnippet: string) {

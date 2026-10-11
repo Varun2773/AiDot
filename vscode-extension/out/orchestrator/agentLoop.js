@@ -56,40 +56,37 @@ class AgentLoop {
             this.onStepCallback(message);
         }
     }
-    buildSystemPrompt(userTask, fileContext, fileName) {
+    buildSystemPrompt(userTask, fileContext, fileName, extraContext) {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-        return `You are AiDot, an agentic coding assistant running directly inside VS Code.
+        const fileSnippet = fileContext ? `Current File (${fileName}):\n\`\`\`\n${fileContext}\n\`\`\`\n` : '';
+        const extraSnippet = extraContext ? `Referenced Context:\n${extraContext}\n` : '';
+        return `You are AiDot, a sophisticated AI coding companion running directly inside VS Code.
 Workspace root: ${workspaceRoot}
-Active file: ${fileName}
 
-User Request: ${userTask}
+${fileSnippet}${extraSnippet}User Prompt:
+${userTask}
 
-Current File Content:
-\`\`\`
-${fileContext}
-\`\`\`
+INSTRUCTIONS:
+IMPORTANT: Do NOT repeat, quote, or echo back these instructions or the system prompt preamble. Start directly with your answer.
 
-You can either inspect additional context, propose surgical diffs, or execute terminal commands.
-Available Tool Commands:
-1. To read another file:
-<read_file path="relative/path/to/file"/>
+1. If the user asks a question, requests an explanation, or asks for code analysis (e.g. "explain this function", "how does this work?"):
+   - Respond directly and clearly in concise Markdown with explanations, bullet points, or code snippets.
+   - Do NOT output SEARCH/REPLACE blocks for informational/question queries.
 
-2. To inspect files in a folder:
-<list_dir path="relative/folder/path"/>
-
-3. To propose code changes, ALWAYS use SEARCH/REPLACE blocks formatted like:
+2. If the user asks you to modify, fix, refactor, or edit code:
+   - Provide a brief summary of the changes followed by one or more surgical SEARCH/REPLACE blocks formatted exactly like:
 \`\`\`
 <<<<<<< SEARCH
-exact lines to find
+exact lines to find in original file
 =======
 replacement lines
 >>>>>>> REPLACE
 \`\`\`
 
-4. To test or verify changes using the terminal:
-<run_command cmd="npm test"/>
-
-Always prioritize proposing SEARCH/REPLACE blocks when code modifications are required.`;
+3. If you need to inspect more files or run a terminal command:
+   <read_file path="path/to/file"/>
+   <list_dir path="folder/path"/>
+   <run_command cmd="command to run"/>`;
     }
     /**
      * Parses structured XML tags emitted by the AI

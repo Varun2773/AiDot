@@ -4,7 +4,7 @@ import { IncomingChromeMessage, ProviderName, SendPromptMessage, UpdateSelectors
 
 export class WsBridgeServer {
   private wss: WebSocketServer | null = null;
-  private clientSocket: WebSocket | null = null;
+  private clientSockets: Set<WebSocket> = new Set();
   private port: number;
   private messageHandlers: ((msg: IncomingChromeMessage) => void)[] = [];
   private connectionChangeHandlers: (() => void)[] = [];
@@ -19,8 +19,8 @@ export class WsBridgeServer {
         this.wss = new WebSocketServer({ port: this.port });
 
         this.wss.on('connection', (ws: WebSocket) => {
-          this.clientSocket = ws;
-          console.log('[aiDot Server] Chrome Bridge Companion Connected');
+          this.clientSockets.add(ws);
+          console.log('[AiDot Server] Chrome Bridge Companion Connected (Active clients:', this.clientSockets.size, ')');
 
           ws.on('message', (data: string | Buffer) => {
             try {
@@ -29,13 +29,13 @@ export class WsBridgeServer {
                 handler(parsed);
               }
             } catch (err) {
-              console.error('[aiDot Server] Failed to parse message:', err);
+              console.error('[AiDot Server] Failed to parse message:', err);
             }
           });
 
           ws.on('close', () => {
-            console.log('[aiDot Server] Chrome Bridge Companion Disconnected');
-            this.clientSocket = null;
+            this.clientSockets.delete(ws);
+            console.log('[AiDot Server] Chrome Bridge Companion Disconnected (Remaining:', this.clientSockets.size, ')');
             this.notifyConnectionChange();
           });
 
@@ -72,7 +72,7 @@ export class WsBridgeServer {
   }
 
   public isConnected(): boolean {
-    return this.clientSocket !== null && this.clientSocket.readyState === WebSocket.OPEN;
+    return this.clientSockets.size > 0;
   }
 
   public sendPrompt(provider: ProviderName, prompt: string, requestId: string, isArena = false): boolean {
@@ -86,8 +86,15 @@ export class WsBridgeServer {
       requestId,
       isArena
     };
-    this.clientSocket!.send(JSON.stringify(message));
-    return true;
+    const payload = JSON.stringify(message);
+    let sentAny = false;
+    for (const socket of this.clientSockets) {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(payload);
+        sentAny = true;
+      }
+    }
+    return sentAny;
   }
 
   public syncSelectors(selectors: Record<string, any>) {
@@ -96,7 +103,12 @@ export class WsBridgeServer {
         type: 'UPDATE_SELECTORS',
         selectors
       };
-      this.clientSocket!.send(JSON.stringify(message));
+      const payload = JSON.stringify(message);
+      for (const socket of this.clientSockets) {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(payload);
+        }
+      }
     }
   }
 
@@ -104,7 +116,7 @@ export class WsBridgeServer {
     if (this.wss) {
       this.wss.close();
       this.wss = null;
-      this.clientSocket = null;
+      this.clientSockets.clear();
     }
   }
 }

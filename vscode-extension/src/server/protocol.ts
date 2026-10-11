@@ -30,6 +30,7 @@ export interface CodeResponseMessage extends BaseMessage {
   type: 'CODE_RESPONSE';
   provider: ProviderName;
   code: string;
+  fullText?: string;
   rawText?: string;
   isArena?: boolean;
 }

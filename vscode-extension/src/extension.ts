@@ -35,11 +35,19 @@ export async function activate(context: vscode.ExtensionContext) {
     arena,
     agentLoop,
     diffManager,
-    terminalWatcher
+    terminalWatcher,
+    context.globalState
   );
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider)
+  );
+
+  // Sync active file when user switches editor files
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      sidebarProvider.syncActiveFileContext();
+    })
   );
 
   // 3. Setup WebSocket message handling from Chrome Companion
@@ -76,13 +84,19 @@ export async function activate(context: vscode.ExtensionContext) {
         } else {
           router.clearRequest(msg.requestId || '');
           const editor = vscode.window.activeTextEditor;
-          if (editor) {
-            const hasDiff = await diffManager.previewDiff(editor.document, msg.code);
+          let hasDiff = false;
+          const isRealDiff = msg.code.includes('<<<<<<< SEARCH') &&
+                             msg.code.includes('>>>>>>> REPLACE') &&
+                             !msg.code.includes('exact lines to find in original file');
+          if (editor && isRealDiff) {
+            hasDiff = await diffManager.previewDiff(editor.document, msg.code);
             if (hasDiff) {
-              vscode.window.showInformationMessage(`AiDot: Received response from ${msg.provider}. Diff opened for review!`);
-              sidebarProvider.syncStatus();
+              vscode.window.showInformationMessage(`AiDot: Diff proposed by ${msg.provider}. Review changes!`);
             }
           }
+          // Log response in chat history view
+          sidebarProvider.handleIncomingAIResponse(msg.provider, msg.fullText || msg.rawText || msg.code, msg.code, hasDiff);
+          sidebarProvider.syncStatus();
         }
         break;
       }
